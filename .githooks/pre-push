@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Pre-push secret scan hook (mirrors socialShop-commercial .claude/hooks/pre-push-secrets.sh,
+# extended with Iyzico key patterns). Auto-enabled via `npm run prepare` (core.hooksPath).
+# Scans all commits about to be pushed; blocks the push on high-confidence secret patterns.
+
+set -euo pipefail
+
+SECRET_PATTERNS=(
+    # AWS
+    'AKIA[0-9A-Z]{16}'
+    # Generic secret/token/password assignments
+    '(?i)(secret|token|password|api_key|apikey|api[-_]?secret)\s*[:=]\s*["\x27][A-Za-z0-9/+=]{16,}["\x27]'
+    # Private keys
+    '-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'
+    # GitHub tokens
+    'gh[pousr]_[A-Za-z0-9_]{36,}'
+    # Iyzico API keys (sandbox keys are prefixed; production keys are bare base62)
+    'sandbox-[A-Za-z0-9]{24,}'
+    '(?i)iyzico[A-Za-z0-9_]*(key|secret)\s*[:=]\s*["\x27][A-Za-z0-9]{16,}["\x27]'
+    # Stripe keys
+    'sk_live_[A-Za-z0-9]{24,}'
+    'rk_live_[A-Za-z0-9]{24,}'
+    # Generic high-entropy hex secrets (40+ chars)
+    '(?i)(secret|signing)["\x27]?\s*[:=]\s*["\x27][0-9a-f]{40,}["\x27]'
+)
+
+SKIP_PATTERNS='(\.lock$|node_modules/|\.min\.(js|css)$|dist/|\.map$|\.snap$|package-lock\.json$)'
+
+COMBINED_PATTERN=$(IFS='|'; echo "${SECRET_PATTERNS[*]}")
+
+Z40='0000000000000000000000000000000000000000'
+FOUND=0
+
+scan_range() {
+    local RANGE="$1"
+
+    MATCHES=$(git diff "$RANGE" --diff-filter=ACM -p -- . \
+        ":(exclude)package-lock.json" \
+        ":(exclude)*.snap" \
+        ":(exclude)*.map" \
+        ":(exclude)*.min.js" \
+        ":(exclude)*.min.css" \
+        | grep -P -n "$COMBINED_PATTERN" \
+        | grep -Ev "$SKIP_PATTERNS" \
+        | grep -v '^Binary' \
+        | head -20 || true)
+
+    if [ -n "$MATCHES" ]; then
+        FOUND=1
+        echo ""
+        echo "=========================================="
+        echo "  SECRET SCAN FAILED — push blocked"
+        echo "=========================================="
+        echo ""
+        echo "Potential secrets found in commits ${RANGE}:"
+        echo ""
+        echo "$MATCHES"
+        echo ""
+        echo "If these are false positives, adjust SKIP_PATTERNS in .githooks/pre-push"
+        echo "or push with --no-verify (use with caution)."
+        echo ""
+    fi
+}
+
+HAS_STDIN=false
+if [ ! -t 0 ]; then
+    while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+        HAS_STDIN=true
+        if [ "$LOCAL_SHA" = "$Z40" ]; then
+            continue
+        fi
+
+        if [ "$REMOTE_SHA" = "$Z40" ]; then
+            RANGE="$(git merge-base HEAD main 2>/dev/null || echo HEAD~10)..${LOCAL_SHA}"
+        else
+            RANGE="${REMOTE_SHA}..${LOCAL_SHA}"
+        fi
+
+        scan_range "$RANGE"
+    done
+fi
+
+if [ "$HAS_STDIN" = false ]; then
+    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+    REMOTE_SHA=$(git rev-parse "origin/$BRANCH" 2>/dev/null || true)
+
+    if [ -n "$REMOTE_SHA" ]; then
+        RANGE="${REMOTE_SHA}..HEAD"
+    else
+        RANGE="$(git merge-base HEAD main 2>/dev/null || echo HEAD~10)..HEAD"
+    fi
+
+    scan_range "$RANGE"
+fi
+
+if [ "$FOUND" -eq 1 ]; then
+    exit 1
+fi
+
+echo "[pre-push] Secret scan passed."
+exit 0
