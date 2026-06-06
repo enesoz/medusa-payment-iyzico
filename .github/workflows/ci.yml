@@ -12,6 +12,7 @@ jobs:
     timeout-minutes: 15
     env:
       CI: "true"
+      MEDUSA_DISABLE_TELEMETRY: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -20,8 +21,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      # --ignore-scripts: @medusajs/telemetry's postinstall hangs on GH runners
+      # (run 27052886568 — npm ci silent for 15 min after reify). Native bindings
+      # (@swc/core, esbuild) ship via optionalDependencies, no scripts needed.
+      # Also standard npm supply-chain hardening.
       - name: Install
-        run: npm ci
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Lint
         run: npm run lint
