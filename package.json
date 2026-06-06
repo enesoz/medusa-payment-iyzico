@@ -44,7 +44,7 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "jest --passWithNoTests",
-    "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath .githooks')}catch(e){}\"",
+    "prepare": "node -e \"if(!process.env.CI){try{require('child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'})}catch(e){}}\"",
     "prepublishOnly": "medusa plugin:build"
   },
   "devDependencies": {
