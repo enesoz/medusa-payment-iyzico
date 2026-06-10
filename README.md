@@ -14,7 +14,7 @@
 |---|---|
 | Repo bootstrap (scaffold, CI, secrets hygiene) | ✅ |
 | Production settlement verification (real-key gate) | ⏳ |
-| `AbstractPaymentProvider` skeleton | ⏳ |
+| `AbstractPaymentProvider` skeleton | ✅ |
 | Checkout integration proven in a production app | ⏳ |
 | npm v1.0.0 | ⏳ |
 
@@ -22,7 +22,7 @@
 
 These come from sandbox + documentation research against Iyzico's API (June 2026):
 
-- **Capture is full-amount only.** Iyzico's partial `postAuth` prorates the capture **globally across all basket items and sub-merchants** (and drives `merchantCommissionRateAmount` negative). This provider will reject partial captures with a typed error by design. Handle partial fulfillment via refunds after a full capture.
+- **Capture is full-amount only — by construction.** Iyzico's partial `postAuth` prorates the capture **globally across all basket items and sub-merchants** (and drives `merchantCommissionRateAmount` negative). Medusa's payment module never passes a capture amount to a provider, and this provider's `capturePayment` issues a full `postAuth` with **no `paidPrice`** — so a partial amount can never reach Iyzico. Handle partial fulfillment via refunds after a full capture; never request a partial capture at the module/admin layer (that records partial in Medusa while Iyzico captures full).
 - **25-day capture window.** Per BKM rules a preauth must be captured within 25 days (bank-variant) or it auto-voids. Iyzico emits **no expiry webhook** — schedule your own capture-deadline watchdog.
 - **No async settlement webhooks.** The only callback is the synchronous 3DS/hosted-form POST (`paymentId` / `mdStatus` / `signature`).
 - **3DS preauth flow:** `POST /payment/3dsecure/initialize/preauth` → WebView (`threeDSHtmlContent`) → callback → `POST /payment/3dsecure/auth` → later `POST /payment/postauth`. A hosted-form preauth variant (`/payment/iyzipos/checkoutform/initialize/preauth/ecom`) also exists.
@@ -59,7 +59,8 @@ modules: [
           options: {
             apiKey: process.env.IYZICO_API_KEY,
             secretKey: process.env.IYZICO_SECRET_KEY,
-            baseUrl: process.env.IYZICO_BASE_URL, // sandbox or production
+            baseUrl: process.env.IYZICO_BASE_URL,       // sandbox or production
+            callbackUrl: process.env.IYZICO_CALLBACK_URL, // 3DS/hosted-form callback
           },
         },
       ],

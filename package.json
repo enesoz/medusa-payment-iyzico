@@ -85,5 +85,8 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "npm@10.9.2"
+  "packageManager": "npm@10.9.2",
+  "dependencies": {
+    "iyzipay": "^2.0.67"
+  }
 }
