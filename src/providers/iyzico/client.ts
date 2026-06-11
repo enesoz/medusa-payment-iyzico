@@ -1,5 +1,6 @@
 import Iyzipay from 'iyzipay'
 import { MedusaError } from '@medusajs/framework/utils'
+import type { Logger } from '@medusajs/framework/types'
 import { IyzicoProviderOptions, IyzipayResult } from './types'
 
 /** Parameters for a hosted-form preauth (authorize-only) initialization. */
@@ -72,14 +73,16 @@ type ResourceCall = (callback: (err: Error | null, result: IyzipayResult) => voi
 export class IyzicoClient {
   private readonly client_: Iyzipay
   private readonly callbackUrl_: string
+  private readonly logger_?: Logger
 
-  constructor(options: IyzicoProviderOptions) {
+  constructor(options: IyzicoProviderOptions, logger?: Logger) {
     this.client_ = new Iyzipay({
       apiKey: options.apiKey,
       secretKey: options.secretKey,
       uri: options.baseUrl,
     })
     this.callbackUrl_ = options.callbackUrl
+    this.logger_ = logger
   }
 
   /** Bridge a callback-style resource call to a Promise, failing loud on gateway errors. */
@@ -87,6 +90,7 @@ export class IyzicoClient {
     return new Promise<IyzipayResult>((resolve, reject) => {
       call((err, result) => {
         if (err) {
+          this.logger_?.error(`Iyzico ${operation} transport error: ${err.message}`)
           reject(
             new MedusaError(
               MedusaError.Types.UNEXPECTED_STATE,
@@ -96,6 +100,9 @@ export class IyzicoClient {
           return
         }
         if (!result || result.status !== 'success') {
+          this.logger_?.warn(
+            `Iyzico ${operation} gateway error (${result?.errorCode ?? 'unknown'}): ${result?.errorMessage ?? 'no error message'}`
+          )
           reject(
             new MedusaError(
               MedusaError.Types.INVALID_DATA,

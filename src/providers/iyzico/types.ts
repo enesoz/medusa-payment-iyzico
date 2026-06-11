@@ -68,6 +68,12 @@ export interface IyzicoPaymentData {
   request?: IyzicoInitiateRequestData
   /** Most recent raw Iyzico result, stored for reconciliation/debugging. */
   result?: IyzipayResult
+  /** Raw Iyzico result from the postauth (capture) call, stripped of non-serializable values. */
+  captureResult?: IyzipayResult
+  /** Raw Iyzico result from the cancel (void) call, stripped of non-serializable values. */
+  cancelResult?: IyzipayResult
+  /** Raw Iyzico result from the refund call, stripped of non-serializable values. */
+  refundResult?: IyzipayResult
 }
 
 /** Fields parsed from the synchronous 3DS callback POST. */

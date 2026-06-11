@@ -20,8 +20,11 @@ export function computeHmacSha256(params: ReadonlyArray<string>, secretKey: stri
  * must have the same byte length") and crashes the 3DS callback route. The length
  * guard plus a UTF-8 compare is timing-safe and never throws. (Mirrors the
  * `constantTimeCompare` precedent that likewise omits `'hex'`.)
+ *
+ * Named `safeEqualString` (not `safeEqualHex`) to avoid the misleading implication
+ * that hex decoding is performed — it is intentionally NOT decoded.
  */
-export function safeEqualHex(a: string, b: string): boolean {
+export function safeEqualString(a: string, b: string): boolean {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) {
     return false
   }
@@ -52,7 +55,7 @@ export function verifyCheckoutFormSignature(result: IyzipayResult, secretKey: st
     asField(result.token),
   ]
   const expected = computeHmacSha256(fields, secretKey)
-  return safeEqualHex(provided, expected)
+  return safeEqualString(provided, expected)
 }
 
 /**
@@ -77,7 +80,7 @@ export function verifyThreedsCallbackSignature(
     payload.status ?? '',
   ]
   const expected = computeHmacSha256(fields, secretKey)
-  return safeEqualHex(provided, expected)
+  return safeEqualString(provided, expected)
 }
 
 /** Coerce an unknown Iyzico result field to the string form used in signature input. */

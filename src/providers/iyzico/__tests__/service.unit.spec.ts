@@ -138,6 +138,34 @@ describe('authorizePayment', () => {
     await expect(service.authorizePayment({ data: {} })).rejects.toThrow(/token/i)
   })
 
+  it('returns ERROR when the result has a valid signature but paymentStatus FAILURE', async () => {
+    const base: IyzipayResult = {
+      status: 'success',
+      paymentStatus: 'FAILURE',
+      phase: 'PRE_AUTH',
+      paymentId: 'pay_err',
+      currency: 'TRY',
+      basketId: 'b1',
+      conversationId: 'conv_1',
+      paidPrice: '300.0',
+      price: '300.0',
+      token: 'tok_1',
+      itemTransactions: [],
+    }
+    base.signature = computeHmacSha256(
+      ['pay_err', 'TRY', 'b1', 'conv_1', '300.0', '300.0', 'tok_1'],
+      options.secretKey
+    )
+    client.retrieveCheckoutForm.mockResolvedValue(base)
+    const service = makeService()
+
+    const result = await service.authorizePayment({
+      data: { token: 'tok_1', conversationId: 'conv_1' },
+    })
+
+    expect(result.status).toBe(PaymentSessionStatus.ERROR)
+  })
+
   it('persists ALL item transaction ids for a multi-sub-merchant basket', async () => {
     const multi = signedSuccess()
     multi.itemTransactions = [

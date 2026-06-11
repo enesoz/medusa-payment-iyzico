@@ -41,8 +41,10 @@ import { verifyCheckoutFormSignature, verifyThreedsCallbackSignature } from './s
 
 interface InjectedDependencies {
   logger: Logger
-  // The Medusa module cradle carries other resolvable resources; index signature keeps
-  // the type assignable to the base `AbstractPaymentProvider` cradle parameter.
+  // The Medusa module cradle carries other resolvable resources; the index signature is
+  // REQUIRED by `AbstractPaymentProvider<TConfig>` — its constructor parameter is
+  // `Record<string, unknown>`, so any concrete container type must also satisfy that
+  // constraint. Removing it breaks assignability at the `super(container, options)` call.
   [key: string]: unknown
 }
 
@@ -83,8 +85,12 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
 
   constructor(container: InjectedDependencies, options: IyzicoProviderOptions) {
     super(container, options)
-    // Re-validate in the constructor (belt-and-suspenders with Medusa's boot-time
-    // static call). Build an explicit record so no cast is needed.
+    // Re-validate in the constructor INTENTIONALLY — this is belt-and-suspenders with
+    // Medusa's boot-time static call to `validateOptions`. The static call runs at
+    // plugin-load time to give operators a fast config error; the constructor call
+    // guards against programmatic construction in tests (and any future code path that
+    // bypasses the Medusa loader). This is NOT a Medusa framework gap — it is
+    // deliberate fail-fast for both entry points.
     IyzicoProviderService.validateOptions({
       apiKey: options.apiKey,
       secretKey: options.secretKey,
@@ -93,7 +99,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
     })
     this.logger_ = container.logger
     this.options_ = options
-    this.client_ = new IyzicoClient(options)
+    this.client_ = new IyzicoClient(options, this.logger_)
   }
 
   async initiatePayment(input: InitiatePaymentInput): Promise<InitiatePaymentOutput> {
@@ -145,13 +151,16 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
     })
 
     if (!verifyCheckoutFormSignature(result, this.options_.secretKey)) {
+      this.logger_.warn(
+        `Iyzico CheckoutForm signature verification failed — possible tampered callback or wrong secretKey. conversationId=${pdata.conversationId ?? 'unknown'}`
+      )
       throw new MedusaError(
         MedusaError.Types.INVALID_DATA,
         'Iyzico CheckoutForm signature verification failed.'
       )
     }
 
-    const status = mapIyzicoStatus(result)
+    const status = mapIyzicoStatus(result, this.logger_)
     const transactionIds = extractPaymentTransactionIds(result)
     const nextData: IyzicoPaymentData = {
       ...pdata,
@@ -173,6 +182,9 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
   async capturePayment(input: CapturePaymentInput): Promise<CapturePaymentOutput> {
     const pdata = parsePaymentData(input.data)
     if (!pdata.paymentId) {
+      this.logger_.error(
+        `Iyzico capturePayment called without a paymentId — payment may not have been authorized. conversationId=${pdata.conversationId ?? 'unknown'}`
+      )
       throw new MedusaError(
         MedusaError.Types.INVALID_DATA,
         'Iyzico capturePayment requires a paymentId in payment data.'
@@ -182,7 +194,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
       paymentId: pdata.paymentId,
       conversationId: pdata.conversationId,
     })
-    return { data: toRecord({ ...pdata, captureResult: result }) }
+    return { data: toRecord({ ...pdata, captureResult: serializeResult(result) }) }
   }
 
   async cancelPayment(input: CancelPaymentInput): Promise<CancelPaymentOutput> {
@@ -197,7 +209,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
       paymentId: pdata.paymentId,
       conversationId: pdata.conversationId,
     })
-    return { data: toRecord({ ...pdata, cancelResult: result }) }
+    return { data: toRecord({ ...pdata, cancelResult: serializeResult(result) }) }
   }
 
   /**
@@ -211,6 +223,9 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
   async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentOutput> {
     const pdata = parsePaymentData(input.data)
     if (!pdata.paymentTransactionId) {
+      this.logger_.error(
+        `Iyzico refundPayment called without a paymentTransactionId — payment may not have been authorized. paymentId=${pdata.paymentId ?? 'unknown'} conversationId=${pdata.conversationId ?? 'unknown'}`
+      )
       throw new MedusaError(
         MedusaError.Types.INVALID_DATA,
         'Iyzico refundPayment requires a paymentTransactionId in payment data.'
@@ -222,7 +237,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
       currency: pdata.currency,
       conversationId: pdata.conversationId,
     })
-    return { data: toRecord({ ...pdata, refundResult: result }) }
+    return { data: toRecord({ ...pdata, refundResult: serializeResult(result) }) }
   }
 
   async getPaymentStatus(input: GetPaymentStatusInput): Promise<GetPaymentStatusOutput> {
@@ -234,7 +249,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
       paymentId: pdata.paymentId,
       conversationId: pdata.conversationId,
     })
-    return { status: mapIyzicoStatus(result), data: toRecord({ ...pdata, result }) }
+    return { status: mapIyzicoStatus(result, this.logger_), data: toRecord({ ...pdata, result }) }
   }
 
   async retrievePayment(input: RetrievePaymentInput): Promise<RetrievePaymentOutput> {
@@ -313,7 +328,11 @@ function parsePaymentData(data: Record<string, unknown> | undefined): IyzicoPaym
       ? transactionIds.filter((id): id is string => typeof id === 'string')
       : undefined,
     currency: readString(data, 'currency'),
-    request: isRecord(request) ? (request as IyzicoInitiateRequestData) : undefined,
+    request: isRecord(request) ? toInitiateRequestData(request) : undefined,
+    result: isRecord(data['result']) ? (data['result'] as IyzipayResult) : undefined,
+    captureResult: isRecord(data['captureResult']) ? (data['captureResult'] as IyzipayResult) : undefined,
+    cancelResult: isRecord(data['cancelResult']) ? (data['cancelResult'] as IyzipayResult) : undefined,
+    refundResult: isRecord(data['refundResult']) ? (data['refundResult'] as IyzipayResult) : undefined,
   }
 }
 
@@ -358,7 +377,7 @@ function extractPaymentTransactionIds(result: IyzipayResult): string[] {
 }
 
 /** Map an Iyzico payment result to a Medusa PaymentSessionStatus. */
-function mapIyzicoStatus(result: IyzipayResult): PaymentSessionStatus {
+function mapIyzicoStatus(result: IyzipayResult, logger?: Logger): PaymentSessionStatus {
   const paymentStatus = readString(result, 'paymentStatus')
   const phase = readString(result, 'phase')
 
@@ -372,6 +391,12 @@ function mapIyzicoStatus(result: IyzipayResult): PaymentSessionStatus {
     if (phase === 'POST_AUTH' || phase === 'AUTH' || phase === 'PAID_PRE_AUTH') {
       return PaymentSessionStatus.CAPTURED
     }
+    // SUCCESS with an unrecognised or absent phase — Iyzico may introduce new phases;
+    // fall back to AUTHORIZED (the preauth state) so the payment is not silently lost.
+    // This is a forward-compatibility fallthrough; log it so new phases are surfaced.
+    logger?.warn(
+      `Iyzico mapIyzicoStatus: SUCCESS with unrecognised phase "${phase ?? 'undefined'}" — defaulting to AUTHORIZED.`
+    )
     return PaymentSessionStatus.AUTHORIZED
   }
   if (paymentStatus === 'INIT_THREEDS' || paymentStatus === 'CALLBACK_THREEDS') {
@@ -382,6 +407,36 @@ function mapIyzicoStatus(result: IyzipayResult): PaymentSessionStatus {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Coerce a plain record to `IyzicoInitiateRequestData` by reading only known keys
+ * (mirrors the `parsePaymentData` pattern — no bare `as` cast).
+ */
+function toInitiateRequestData(obj: Record<string, unknown>): IyzicoInitiateRequestData {
+  const buyer = obj['buyer']
+  const basketItems = obj['basketItems']
+  const shippingAddress = obj['shippingAddress']
+  const billingAddress = obj['billingAddress']
+  return {
+    buyer: isRecord(buyer) ? buyer : undefined,
+    basketItems: Array.isArray(basketItems)
+      ? basketItems.filter(isRecord)
+      : undefined,
+    shippingAddress: isRecord(shippingAddress) ? shippingAddress : undefined,
+    billingAddress: isRecord(billingAddress) ? billingAddress : undefined,
+    paymentGroup: readString(obj, 'paymentGroup'),
+    locale: readString(obj, 'locale'),
+  }
+}
+
+/**
+ * Strip non-serializable values from a raw `IyzipayResult` before storing it on the
+ * payment data record. `JSON.parse(JSON.stringify(...))` removes functions, `undefined`
+ * values, and circular references that cannot be persisted by Medusa's data layer.
+ */
+function serializeResult(result: IyzipayResult): IyzipayResult {
+  return JSON.parse(JSON.stringify(result)) as IyzipayResult
 }
 
 /** Serialize a typed payment-data object back to the `Record<string, unknown>` Medusa stores. */
