@@ -137,6 +137,28 @@ describe('authorizePayment', () => {
     const service = makeService()
     await expect(service.authorizePayment({ data: {} })).rejects.toThrow(/token/i)
   })
+
+  it('persists ALL item transaction ids for a multi-sub-merchant basket', async () => {
+    const multi = signedSuccess()
+    multi.itemTransactions = [
+      { paymentTransactionId: 'ptx_1' },
+      { paymentTransactionId: 'ptx_2' },
+      { paymentTransactionId: 'ptx_3' },
+    ]
+    client.retrieveCheckoutForm.mockResolvedValue(multi)
+    const service = makeService()
+
+    const result = await service.authorizePayment({
+      data: { token: 'tok_1', conversationId: 'conv_1' },
+    })
+
+    // First id remains the default single-refund target; all ids are kept so the app
+    // can refund each seller's portion (refunds are per-transaction).
+    expect(result.data).toMatchObject({
+      paymentTransactionId: 'ptx_1',
+      paymentTransactionIds: ['ptx_1', 'ptx_2', 'ptx_3'],
+    })
+  })
 })
 
 describe('capturePayment', () => {

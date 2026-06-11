@@ -152,10 +152,12 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
     }
 
     const status = mapIyzicoStatus(result)
+    const transactionIds = extractPaymentTransactionIds(result)
     const nextData: IyzicoPaymentData = {
       ...pdata,
       paymentId: readString(result, 'paymentId') ?? pdata.paymentId,
-      paymentTransactionId: extractPaymentTransactionId(result) ?? pdata.paymentTransactionId,
+      paymentTransactionId: transactionIds[0] ?? pdata.paymentTransactionId,
+      paymentTransactionIds: transactionIds.length > 0 ? transactionIds : pdata.paymentTransactionIds,
       result,
     }
     return { status, data: toRecord(nextData) }
@@ -269,8 +271,10 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
     const amount = readCallbackAmount(payload.data)
 
     const signatureValid = verifyThreedsCallbackSignature(callback, this.options_.secretKey)
+    // Coerce mdStatus (form-POST fields are strings, but a numeric `1` must not slip past)
+    // and gate POSITIVELY on `status === 'success'` so an absent/unknown status fails closed.
     const authorized =
-      signatureValid && callback.mdStatus === '1' && callback.status !== 'failure'
+      signatureValid && String(callback.mdStatus) === '1' && callback.status === 'success'
 
     if (!authorized) {
       return { action: 'failed', data: { session_id: sessionId, amount } }
@@ -299,11 +303,15 @@ function parsePaymentData(data: Record<string, unknown> | undefined): IyzicoPaym
     return {}
   }
   const request = data['request']
+  const transactionIds = data['paymentTransactionIds']
   return {
     conversationId: readString(data, 'conversationId'),
     token: readString(data, 'token'),
     paymentId: readString(data, 'paymentId'),
     paymentTransactionId: readString(data, 'paymentTransactionId'),
+    paymentTransactionIds: Array.isArray(transactionIds)
+      ? transactionIds.filter((id): id is string => typeof id === 'string')
+      : undefined,
     currency: readString(data, 'currency'),
     request: isRecord(request) ? (request as IyzicoInitiateRequestData) : undefined,
   }
@@ -327,16 +335,26 @@ function readCallbackAmount(data: Record<string, unknown>): BigNumber {
   return new BigNumber(raw)
 }
 
-/** Extract the first item transaction id (needed for later refunds) from an Iyzico result. */
-function extractPaymentTransactionId(result: IyzipayResult): string | undefined {
+/**
+ * Extract EVERY item transaction id from an Iyzico result. A multi-sub-merchant basket
+ * has one `paymentTransactionId` per seller and refunds are per-transaction, so all ids
+ * are returned (order preserved) — never just the first.
+ */
+function extractPaymentTransactionIds(result: IyzipayResult): string[] {
   const transactions = result['itemTransactions']
-  if (Array.isArray(transactions) && transactions.length > 0) {
-    const first = transactions[0]
-    if (isRecord(first)) {
-      return readString(first, 'paymentTransactionId')
+  if (!Array.isArray(transactions)) {
+    return []
+  }
+  const ids: string[] = []
+  for (const tx of transactions) {
+    if (isRecord(tx)) {
+      const id = readString(tx, 'paymentTransactionId')
+      if (id) {
+        ids.push(id)
+      }
     }
   }
-  return undefined
+  return ids
 }
 
 /** Map an Iyzico payment result to a Medusa PaymentSessionStatus. */

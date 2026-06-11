@@ -10,12 +10,22 @@ export function computeHmacSha256(params: ReadonlyArray<string>, secretKey: stri
   return createHmac('sha256', secretKey).update(params.join(':')).digest('hex')
 }
 
-/** Constant-time hex-string comparison (defends against timing attacks on the signature). */
+/**
+ * Constant-time string comparison (defends against timing attacks on the signature).
+ *
+ * Compares the raw strings as UTF-8 bytes rather than decoding them as hex. A
+ * `'hex'` decode is unsafe here: an attacker can POST a same-length but non-hex
+ * `signature`, which `Buffer.from(x, 'hex')` truncates to a SHORTER buffer than the
+ * 32-byte expected digest, so `timingSafeEqual` throws `RangeError` ("Input buffers
+ * must have the same byte length") and crashes the 3DS callback route. The length
+ * guard plus a UTF-8 compare is timing-safe and never throws. (Mirrors the
+ * `constantTimeCompare` precedent that likewise omits `'hex'`.)
+ */
 export function safeEqualHex(a: string, b: string): boolean {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) {
     return false
   }
-  return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'))
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b))
 }
 
 /**

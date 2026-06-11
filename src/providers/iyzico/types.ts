@@ -50,8 +50,18 @@ export interface IyzicoPaymentData {
   token?: string
   /** Iyzico `paymentId` (present once authorized). */
   paymentId?: string
-  /** Iyzico `paymentTransactionId` per basket item — needed for refunds. */
+  /**
+   * First Iyzico `paymentTransactionId` — the default target for a single-seller refund.
+   * A caller MAY override it in `data` to refund a specific item's transaction.
+   */
   paymentTransactionId?: string
+  /**
+   * EVERY `paymentTransactionId` from the authorized result. A multi-sub-merchant basket
+   * yields one transaction per seller; refunds are per-transaction, so all ids are
+   * persisted here (not just the first) to let the app refund each seller's portion.
+   * The provider itself runs no split/loop logic — orchestration stays app-side (D10).
+   */
+  paymentTransactionIds?: ReadonlyArray<string>
   /** ISO currency code captured at initiate time. */
   currency?: string
   /** Initiate-time request fragments (pass-through, see IyzicoInitiateRequestData). */
