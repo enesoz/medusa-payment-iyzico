@@ -37,6 +37,12 @@ export interface IyzicoInitiateRequestData {
   paymentGroup?: string
   /** Optional 2-letter locale (`TR` | `EN`); defaults to TR. */
   locale?: string
+  /**
+   * Optional Iyzico `basketId` — the app forwards its cart id here so the
+   * checkout-form retrieve/callback round-trips the same id back, letting the
+   * consumer resolve the originating cart without a separate correlation store.
+   */
+  basketId?: string
 }
 
 /**

@@ -114,6 +114,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
       paidPrice: price,
       currency,
       callbackUrl: this.options_.callbackUrl,
+      basketId: request.basketId,
       paymentGroup: request.paymentGroup,
       locale: request.locale,
       buyer: request.buyer,
@@ -427,6 +428,7 @@ function toInitiateRequestData(obj: Record<string, unknown>): IyzicoInitiateRequ
     billingAddress: isRecord(billingAddress) ? billingAddress : undefined,
     paymentGroup: readString(obj, 'paymentGroup'),
     locale: readString(obj, 'locale'),
+    basketId: readString(obj, 'basketId'),
   }
 }
 
