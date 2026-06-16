@@ -86,6 +86,25 @@ describe('initiatePayment', () => {
     expect(result.id).toBe('tok_1')
     expect(result.data).toMatchObject({ token: 'tok_1', currency: 'TRY' })
   })
+
+  it('forwards request.basketId to Iyzico so the cart id round-trips back on callback', async () => {
+    client.initializePreAuth.mockResolvedValue({ status: 'success', token: 'tok_2' })
+    const service = makeService()
+
+    const result = await service.initiatePayment({
+      amount: 300,
+      currency_code: 'try',
+      data: { conversationId: 'conv_1', request: { basketId: 'cart_42' } },
+    })
+
+    expect(client.initializePreAuth).toHaveBeenCalledWith(
+      expect.objectContaining({ basketId: 'cart_42' })
+    )
+    // Lock in lifecycle persistence: basketId must survive in the returned data so a
+    // later parsePaymentData -> toInitiateRequestData re-hydration (authorize/getStatus)
+    // keeps it. Also exercises the toInitiateRequestData basketId coerce. (greptile P2.)
+    expect(result.data).toMatchObject({ request: { basketId: 'cart_42' } })
+  })
 })
 
 describe('authorizePayment', () => {
