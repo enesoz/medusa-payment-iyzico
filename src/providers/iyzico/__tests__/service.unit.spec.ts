@@ -91,7 +91,7 @@ describe('initiatePayment', () => {
     client.initializePreAuth.mockResolvedValue({ status: 'success', token: 'tok_2' })
     const service = makeService()
 
-    await service.initiatePayment({
+    const result = await service.initiatePayment({
       amount: 300,
       currency_code: 'try',
       data: { conversationId: 'conv_1', request: { basketId: 'cart_42' } },
@@ -100,6 +100,10 @@ describe('initiatePayment', () => {
     expect(client.initializePreAuth).toHaveBeenCalledWith(
       expect.objectContaining({ basketId: 'cart_42' })
     )
+    // Lock in lifecycle persistence: basketId must survive in the returned data so a
+    // later parsePaymentData -> toInitiateRequestData re-hydration (authorize/getStatus)
+    // keeps it. Also exercises the toInitiateRequestData basketId coerce. (greptile P2.)
+    expect(result.data).toMatchObject({ request: { basketId: 'cart_42' } })
   })
 })
 
