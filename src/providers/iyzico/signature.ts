@@ -32,13 +32,14 @@ export function safeEqualString(a: string, b: string): boolean {
 }
 
 /**
- * Verify the signature on a hosted CheckoutForm retrieve result. Iyzico signs the
- * result over `[paymentId, currency, basketId, conversationId, paidPrice, price, token]`.
+ * Verify the signature on a hosted CheckoutForm retrieve result. Iyzico signs the result over
+ * `[paymentStatus, paymentId, currency, basketId, conversationId, paidPrice, price, token]`
+ * with trailing zeros stripped from prices.
  *
- * ⚠ Story 20.1 GATE: the exact field ordering is confirmed against PRODUCTION keys
- * (the spike's sandbox callback round-trip was not exercised — `mock*iyzihostrfn`
- * settlement). Until 20.1's memo lands, treat a verification pass as structurally
- * correct but not production-proven.
+ * [doc-verified 2026-10-02] docs.iyzico.com response-signature-validation ("Checkout Form —
+ * Detail") and iyzipay `samples/IyzipaySamples.js:364` agree. Confirmed against a real SANDBOX
+ * retrieve (paymentId 38093815): this list matched; the previous list without `paymentStatus`
+ * did not. An absent `conversationId` (retrieve sent without one) is hashed as ''.
  */
 export function verifyCheckoutFormSignature(result: IyzipayResult, secretKey: string): boolean {
   const provided = typeof result.signature === 'string' ? result.signature : ''
@@ -46,12 +47,13 @@ export function verifyCheckoutFormSignature(result: IyzipayResult, secretKey: st
     return false
   }
   const fields: ReadonlyArray<string> = [
+    asField(result.paymentStatus),
     asField(result.paymentId),
     asField(result.currency),
     asField(result.basketId),
     asField(result.conversationId),
-    asField(result.paidPrice),
-    asField(result.price),
+    normalizePrice(result.paidPrice),
+    normalizePrice(result.price),
     asField(result.token),
   ]
   const expected = computeHmacSha256(fields, secretKey)
@@ -89,4 +91,13 @@ function asField(value: unknown): string {
     return ''
   }
   return String(value)
+}
+
+/**
+ * Iyzico strips trailing decimal zeros from prices before signing ("10.50" → "10.5",
+ * "10.00" → "10"). String-only, so no float rounding can creep in.
+ */
+export function normalizePrice(value: unknown): string {
+  const s = asField(value)
+  return s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s
 }

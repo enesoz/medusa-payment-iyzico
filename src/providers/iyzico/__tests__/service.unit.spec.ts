@@ -123,7 +123,7 @@ describe('authorizePayment', () => {
       itemTransactions: [{ paymentTransactionId: 'ptx_1' }],
     }
     base.signature = computeHmacSha256(
-      ['pay_1', 'TRY', 'b1', 'conv_1', '300.0', '300.0', 'tok_1'],
+      ['SUCCESS', 'pay_1', 'TRY', 'b1', 'conv_1', '300', '300', 'tok_1'],
       options.secretKey
     )
     return base
@@ -152,6 +152,29 @@ describe('authorizePayment', () => {
     ).rejects.toThrow(/signature/i)
   })
 
+  it('rejects a signature over the old list without paymentStatus', async () => {
+    const legacy = signedSuccess()
+    legacy.signature = computeHmacSha256(
+      ['pay_1', 'TRY', 'b1', 'conv_1', '300', '300', 'tok_1'],
+      options.secretKey
+    )
+    client.retrieveCheckoutForm.mockResolvedValue(legacy)
+
+    await expect(
+      makeService().authorizePayment({ data: { token: 'tok_1', conversationId: 'conv_1' } })
+    ).rejects.toThrow(/signature/i)
+  })
+
+  it('rejects when only paymentStatus is tampered after signing', async () => {
+    const tampered = signedSuccess()
+    tampered.paymentStatus = 'FAILURE'
+    client.retrieveCheckoutForm.mockResolvedValue(tampered)
+
+    await expect(
+      makeService().authorizePayment({ data: { token: 'tok_1', conversationId: 'conv_1' } })
+    ).rejects.toThrow(/signature/i)
+  })
+
   it('throws when no token is present', async () => {
     const service = makeService()
     await expect(service.authorizePayment({ data: {} })).rejects.toThrow(/token/i)
@@ -172,7 +195,7 @@ describe('authorizePayment', () => {
       itemTransactions: [],
     }
     base.signature = computeHmacSha256(
-      ['pay_err', 'TRY', 'b1', 'conv_1', '300.0', '300.0', 'tok_1'],
+      ['FAILURE', 'pay_err', 'TRY', 'b1', 'conv_1', '300', '300', 'tok_1'],
       options.secretKey
     )
     client.retrieveCheckoutForm.mockResolvedValue(base)
