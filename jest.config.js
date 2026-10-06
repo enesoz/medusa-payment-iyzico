@@ -4,6 +4,9 @@ module.exports = {
   transform: {
     '^.+\\.[jt]sx?$': ['@swc/jest'],
   },
-  testMatch: ['<rootDir>/src/**/__tests__/**/*.unit.spec.ts', '<rootDir>/src/**/*.unit.spec.ts'],
+  // `roots` scopes discovery to src/; a rootDir-relative testMatch glob matched nothing when the
+  // checkout sits under a dot-directory (e.g. a `.claude/worktrees/*` worktree on Windows).
+  roots: ['<rootDir>/src'],
+  testMatch: ['**/*.unit.spec.ts'],
   modulePathIgnorePatterns: ['<rootDir>/.medusa/'],
 }

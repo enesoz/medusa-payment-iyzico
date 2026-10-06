@@ -293,14 +293,25 @@ describe('refundPayment', () => {
   })
 })
 
+/** The fields a fenced call's MedusaError is matched on. */
+interface CodedErrorShape {
+  type: string
+  code: string
+}
+
 describe('hostOwnsReversals fence', () => {
-  const FENCED = { type: 'not_allowed', code: IYZICO_PROVIDER_REVERSAL_FENCED }
+  const FENCED: CodedErrorShape = { type: 'not_allowed', code: IYZICO_PROVIDER_REVERSAL_FENCED }
 
   function makeFencedService(): IyzicoProviderService {
     return new IyzicoProviderService({ logger }, { ...options, hostOwnsReversals: true })
   }
 
   function expectNoClientCall(): void {
+    // Guard against a vacuous loop: the fixture must mock every public IyzicoClient method
+    // (a trailing underscore marks a private helper, e.g. run_, which the service cannot call).
+    const clientMethods = Object.getOwnPropertyNames(IyzicoClient.prototype)
+      .filter(name => name !== 'constructor' && !name.endsWith('_'))
+    expect(Object.keys(client).sort()).toEqual(clientMethods.sort())
     for (const method of Object.values(client)) {
       expect(method).not.toHaveBeenCalled()
     }
@@ -316,15 +327,20 @@ describe('hostOwnsReversals fence', () => {
       service.cancelPayment({ data: { paymentId: 'pay_1', conversationId: 'conv_1' } })
     ).rejects.toMatchObject(FENCED)
     expectNoClientCall()
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('paymentId=pay_1 conversationId=conv_1'))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('cancelPayment refused'))
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('paymentId=pay_1 paymentTransactionId=unknown conversationId=conv_1')
+    )
   })
 
-  it('refuses refundPayment with a coded error and sends nothing', async () => {
+  it('refuses refundPayment with a coded error, logs the gateway ids and sends nothing', async () => {
     const service = makeFencedService()
     await expect(
       service.refundPayment({ amount: 50, data: { paymentTransactionId: 'ptx_1', currency: 'TRY' } })
     ).rejects.toMatchObject(FENCED)
     expectNoClientCall()
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('refundPayment refused'))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('paymentTransactionId=ptx_1'))
   })
 
   it('fences refundPayment before its data validation (one stable code)', async () => {
@@ -346,7 +362,7 @@ describe('hostOwnsReversals fence', () => {
     const service = makeFencedService()
     const result = await service.capturePayment({ data: { paymentId: 'pay_1' } })
     expect(client.postAuthFull).toHaveBeenCalledWith(expect.objectContaining({ paymentId: 'pay_1' }))
-    expect(result.data).toHaveProperty('captureResult')
+    expect(result.data?.captureResult).toEqual({ status: 'success' })
   })
 
   it('an explicit false keeps both provider reversals', async () => {
@@ -361,10 +377,9 @@ describe('hostOwnsReversals fence', () => {
 
   it.each(['true', 1, 'false', null])('rejects a non-boolean hostOwnsReversals (%p) at boot', (value) => {
     const bad = { ...options, hostOwnsReversals: value }
-    expect(() => IyzicoProviderService.validateOptions(bad)).toThrow(/hostOwnsReversals/)
-    expect(
-      () => new IyzicoProviderService({ logger }, bad as unknown as IyzicoProviderOptions)
-    ).toThrow(/hostOwnsReversals/)
+    const invalid = expect.objectContaining({ type: 'invalid_data', message: expect.stringMatching(/hostOwnsReversals/) })
+    expect(() => IyzicoProviderService.validateOptions(bad)).toThrow(invalid)
+    expect(() => new IyzicoProviderService({ logger }, bad as unknown as IyzicoProviderOptions)).toThrow(invalid)
   })
 
   it.each([true, false, undefined])('accepts hostOwnsReversals = %p', (value) => {

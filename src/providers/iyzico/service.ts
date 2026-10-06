@@ -40,6 +40,9 @@ import {
 } from './types'
 import { verifyCheckoutFormSignature, verifyThreedsCallbackSignature } from './signature'
 
+/** The provider methods that `hostOwnsReversals` fences. */
+type ReversalMethod = 'cancelPayment' | 'refundPayment'
+
 interface InjectedDependencies {
   logger: Logger
   // The Medusa module cradle carries other resolvable resources; the index signature is
@@ -100,13 +103,8 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
     // guards against programmatic construction in tests (and any future code path that
     // bypasses the Medusa loader). This is NOT a Medusa framework gap — it is
     // deliberate fail-fast for both entry points.
-    IyzicoProviderService.validateOptions({
-      apiKey: options.apiKey,
-      secretKey: options.secretKey,
-      baseUrl: options.baseUrl,
-      callbackUrl: options.callbackUrl,
-      hostOwnsReversals: options.hostOwnsReversals,
-    })
+    // Spread, not a hand-copied list, so a newly validated option can't be skipped here.
+    IyzicoProviderService.validateOptions({ ...options })
     this.logger_ = container.logger
     this.options_ = options
     this.client_ = new IyzicoClient(options, this.logger_)
@@ -116,15 +114,12 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
    * Throws before any gateway call when the host owns reversals (`hostOwnsReversals`). Logs the
    * gateway identifiers first: core callers that swallow the error log only the Medusa payment id.
    */
-  private assertProviderOwnsReversals(
-    method: 'cancelPayment' | 'refundPayment',
-    pdata: IyzicoPaymentData
-  ): void {
+  private assertProviderOwnsReversals(method: ReversalMethod, pdata: IyzicoPaymentData): void {
     if (this.options_.hostOwnsReversals !== true) {
       return
     }
     this.logger_.warn(
-      `Iyzico provider ${method} refused (hostOwnsReversals); the host recovery owner must act. paymentId=${pdata.paymentId ?? 'unknown'} conversationId=${pdata.conversationId ?? 'unknown'}`
+      `Iyzico provider ${method} refused (hostOwnsReversals); the host recovery owner must act. paymentId=${pdata.paymentId ?? 'unknown'} paymentTransactionId=${pdata.paymentTransactionId ?? 'unknown'} conversationId=${pdata.conversationId ?? 'unknown'}`
     )
     throw new MedusaError(
       MedusaError.Types.NOT_ALLOWED,
