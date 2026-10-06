@@ -102,6 +102,17 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
     this.client_ = new IyzicoClient(options, this.logger_)
   }
 
+  /** Throws before any gateway call when the host owns reversals (`hostOwnsReversals`). */
+  private assertProviderOwnsReversals(method: 'cancelPayment' | 'refundPayment'): void {
+    if (this.options_.hostOwnsReversals === true) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        `Iyzico provider ${method} is fenced: the host app owns gateway reversals.`,
+        'IYZICO_PROVIDER_REVERSAL_FENCED'
+      )
+    }
+  }
+
   async initiatePayment(input: InitiatePaymentInput): Promise<InitiatePaymentOutput> {
     const pdata = parsePaymentData(input.data)
     const request: IyzicoInitiateRequestData = pdata.request ?? {}
@@ -204,6 +215,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
       // Nothing was authorized at the gateway yet — nothing to void.
       return { data: input.data }
     }
+    this.assertProviderOwnsReversals('cancelPayment')
     // ⚠ spike-19-1 Q5: sandbox settlement is mocked; cancel-void fidelity is verified
     // against PRODUCTION keys in Story 20.1 before this is trusted in a money path.
     const result = await this.client_.cancel({
@@ -222,6 +234,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
   }
 
   async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentOutput> {
+    this.assertProviderOwnsReversals('refundPayment')
     const pdata = parsePaymentData(input.data)
     if (!pdata.paymentTransactionId) {
       this.logger_.error(

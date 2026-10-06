@@ -61,6 +61,9 @@ modules: [
             secretKey: process.env.IYZICO_SECRET_KEY,
             baseUrl: process.env.IYZICO_BASE_URL,       // sandbox or production
             callbackUrl: process.env.IYZICO_CALLBACK_URL, // 3DS/hosted-form callback
+            // Optional. `true` = your app sends cancels/refunds itself; the provider's
+            // cancelPayment/refundPayment then refuse (IYZICO_PROVIDER_REVERSAL_FENCED).
+            hostOwnsReversals: false,
           },
         },
       ],

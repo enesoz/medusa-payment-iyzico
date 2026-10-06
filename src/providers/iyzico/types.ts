@@ -16,6 +16,15 @@ export interface IyzicoProviderOptions {
   baseUrl: string
   /** 3DS / hosted-form callback URL the bank POSTs back to after the challenge. */
   callbackUrl: string
+  /**
+   * When `true`, the host app owns every gateway reversal: `cancelPayment` and
+   * `refundPayment` refuse (`IYZICO_PROVIDER_REVERSAL_FENCED`) instead of calling Iyzico.
+   * Use it when the host sends cancels/refunds through its own latched recovery owner, so
+   * no Medusa core caller (cancel-order, complete-cart compensation, authorize rollback)
+   * can send an untracked second reversal. A `cancelPayment` with no gateway `paymentId`
+   * still returns unchanged, since it sends nothing. Defaults to `false`.
+   */
+  hostOwnsReversals?: boolean
 }
 
 /**

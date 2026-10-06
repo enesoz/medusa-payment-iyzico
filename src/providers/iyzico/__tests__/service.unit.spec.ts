@@ -293,6 +293,50 @@ describe('refundPayment', () => {
   })
 })
 
+describe('hostOwnsReversals fence', () => {
+  function makeFencedService(): IyzicoProviderService {
+    return new IyzicoProviderService({ logger }, { ...options, hostOwnsReversals: true })
+  }
+
+  it('refuses cancelPayment with a coded error and sends nothing', async () => {
+    const service = makeFencedService()
+    await expect(service.cancelPayment({ data: { paymentId: 'pay_1' } })).rejects.toMatchObject({
+      type: 'not_allowed',
+      code: 'IYZICO_PROVIDER_REVERSAL_FENCED',
+    })
+    expect(client.cancel).not.toHaveBeenCalled()
+  })
+
+  it('refuses refundPayment with a coded error and sends nothing', async () => {
+    const service = makeFencedService()
+    await expect(
+      service.refundPayment({ amount: 50, data: { paymentTransactionId: 'ptx_1', currency: 'TRY' } })
+    ).rejects.toMatchObject({ type: 'not_allowed', code: 'IYZICO_PROVIDER_REVERSAL_FENCED' })
+    expect(client.refund).not.toHaveBeenCalled()
+  })
+
+  it('still returns unchanged for a cancelPayment with no gateway paymentId', async () => {
+    const service = makeFencedService()
+    const result = await service.cancelPayment({ data: {} })
+    expect(client.cancel).not.toHaveBeenCalled()
+    expect(result.data).toEqual({})
+  })
+
+  it('leaves capture untouched (the host saga still captures through the provider)', async () => {
+    client.postAuthFull.mockResolvedValue({ status: 'success' })
+    const service = makeFencedService()
+    await service.capturePayment({ data: { paymentId: 'pay_1' } })
+    expect(client.postAuthFull).toHaveBeenCalledWith(expect.objectContaining({ paymentId: 'pay_1' }))
+  })
+
+  it('only `true` fences: an explicit false keeps the provider reversals', async () => {
+    client.cancel.mockResolvedValue({ status: 'success' })
+    const service = new IyzicoProviderService({ logger }, { ...options, hostOwnsReversals: false })
+    await service.cancelPayment({ data: { paymentId: 'pay_1' } })
+    expect(client.cancel).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('getPaymentStatus mapping', () => {
   it('maps a captured (POST_AUTH) payment to CAPTURED', async () => {
     client.retrievePayment.mockResolvedValue({
