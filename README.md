@@ -61,8 +61,9 @@ modules: [
             secretKey: process.env.IYZICO_SECRET_KEY,
             baseUrl: process.env.IYZICO_BASE_URL,       // sandbox or production
             callbackUrl: process.env.IYZICO_CALLBACK_URL, // 3DS/hosted-form callback
-            // Optional. `true` = your app sends cancels/refunds itself; the provider's
-            // cancelPayment/refundPayment then refuse (IYZICO_PROVIDER_REVERSAL_FENCED).
+            // Optional boolean (anything else fails at boot). `true` = your app sends
+            // cancels/refunds itself; the provider's cancelPayment/refundPayment then refuse
+            // (IYZICO_PROVIDER_REVERSAL_FENCED). See "Host-owned reversals" below.
             hostOwnsReversals: false,
           },
         },
@@ -73,6 +74,16 @@ modules: [
 ```
 
 **Never commit keys.** This repo enforces a pre-push secret scan (`.githooks/pre-push`, auto-configured via the `prepare` script) and CI secret scanning. Sandbox keys belong in CI secrets; production keys belong in your deployment environment.
+
+## Host-owned reversals (`hostOwnsReversals: true`)
+
+The fence stops **gateway** effects only; capture is unaffected. Opting in means your app must:
+
+- **Route or fence the core owners.** Core callers that swallow provider errors still finish their local transitions: `cancelOrderWorkflow` still cancels the order, and its refund branch records OrderTransactions for refunds that never reached Iyzico.
+- **Release preauths itself.** `paymentModule.authorizePaymentSession` calls `cancelPayment` in its rollback before rethrowing, so the original error is replaced by `IYZICO_PROVIDER_REVERSAL_FENCED` and the preauth stays held.
+- **Record confirmed voids with its own write** (e.g. `paymentModule.updatePayment`): `paymentModule.cancelPayment` can no longer set `canceled_at` for an Iyzico payment.
+
+The error code is exported as `IYZICO_PROVIDER_REVERSAL_FENCED`.
 
 ## Scope
 

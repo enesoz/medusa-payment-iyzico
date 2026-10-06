@@ -4,7 +4,7 @@ import type { Logger } from '@medusajs/framework/types'
 import { PaymentSessionStatus } from '@medusajs/framework/utils'
 import IyzicoProviderService from '../service'
 import { IyzicoClient } from '../client'
-import { IyzicoProviderOptions, IyzipayResult } from '../types'
+import { IyzicoProviderOptions, IyzipayResult, IYZICO_PROVIDER_REVERSAL_FENCED } from '../types'
 import { computeHmacSha256 } from '../signature'
 
 const MockedClient = IyzicoClient as jest.MockedClass<typeof IyzicoClient>
@@ -294,46 +294,81 @@ describe('refundPayment', () => {
 })
 
 describe('hostOwnsReversals fence', () => {
+  const FENCED = { type: 'not_allowed', code: IYZICO_PROVIDER_REVERSAL_FENCED }
+
   function makeFencedService(): IyzicoProviderService {
     return new IyzicoProviderService({ logger }, { ...options, hostOwnsReversals: true })
   }
 
-  it('refuses cancelPayment with a coded error and sends nothing', async () => {
+  function expectNoClientCall(): void {
+    for (const method of Object.values(client)) {
+      expect(method).not.toHaveBeenCalled()
+    }
+  }
+
+  it('exports the fence code', () => {
+    expect(IYZICO_PROVIDER_REVERSAL_FENCED).toBe('IYZICO_PROVIDER_REVERSAL_FENCED')
+  })
+
+  it('refuses cancelPayment with a coded error, logs the gateway ids and sends nothing', async () => {
     const service = makeFencedService()
-    await expect(service.cancelPayment({ data: { paymentId: 'pay_1' } })).rejects.toMatchObject({
-      type: 'not_allowed',
-      code: 'IYZICO_PROVIDER_REVERSAL_FENCED',
-    })
-    expect(client.cancel).not.toHaveBeenCalled()
+    await expect(
+      service.cancelPayment({ data: { paymentId: 'pay_1', conversationId: 'conv_1' } })
+    ).rejects.toMatchObject(FENCED)
+    expectNoClientCall()
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('paymentId=pay_1 conversationId=conv_1'))
   })
 
   it('refuses refundPayment with a coded error and sends nothing', async () => {
     const service = makeFencedService()
     await expect(
       service.refundPayment({ amount: 50, data: { paymentTransactionId: 'ptx_1', currency: 'TRY' } })
-    ).rejects.toMatchObject({ type: 'not_allowed', code: 'IYZICO_PROVIDER_REVERSAL_FENCED' })
-    expect(client.refund).not.toHaveBeenCalled()
+    ).rejects.toMatchObject(FENCED)
+    expectNoClientCall()
+  })
+
+  it('fences refundPayment before its data validation (one stable code)', async () => {
+    const service = makeFencedService()
+    await expect(service.refundPayment({ amount: 50, data: {} })).rejects.toMatchObject(FENCED)
+    expect(logger.error).not.toHaveBeenCalled()
+    expectNoClientCall()
   })
 
   it('still returns unchanged for a cancelPayment with no gateway paymentId', async () => {
     const service = makeFencedService()
     const result = await service.cancelPayment({ data: {} })
-    expect(client.cancel).not.toHaveBeenCalled()
+    expectNoClientCall()
     expect(result.data).toEqual({})
   })
 
   it('leaves capture untouched (the host saga still captures through the provider)', async () => {
     client.postAuthFull.mockResolvedValue({ status: 'success' })
     const service = makeFencedService()
-    await service.capturePayment({ data: { paymentId: 'pay_1' } })
+    const result = await service.capturePayment({ data: { paymentId: 'pay_1' } })
     expect(client.postAuthFull).toHaveBeenCalledWith(expect.objectContaining({ paymentId: 'pay_1' }))
+    expect(result.data).toHaveProperty('captureResult')
   })
 
-  it('only `true` fences: an explicit false keeps the provider reversals', async () => {
+  it('an explicit false keeps both provider reversals', async () => {
     client.cancel.mockResolvedValue({ status: 'success' })
+    client.refund.mockResolvedValue({ status: 'success' })
     const service = new IyzicoProviderService({ logger }, { ...options, hostOwnsReversals: false })
     await service.cancelPayment({ data: { paymentId: 'pay_1' } })
+    await service.refundPayment({ amount: 50, data: { paymentTransactionId: 'ptx_1', currency: 'TRY' } })
     expect(client.cancel).toHaveBeenCalledTimes(1)
+    expect(client.refund).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['true', 1, 'false', null])('rejects a non-boolean hostOwnsReversals (%p) at boot', (value) => {
+    const bad = { ...options, hostOwnsReversals: value }
+    expect(() => IyzicoProviderService.validateOptions(bad)).toThrow(/hostOwnsReversals/)
+    expect(
+      () => new IyzicoProviderService({ logger }, bad as unknown as IyzicoProviderOptions)
+    ).toThrow(/hostOwnsReversals/)
+  })
+
+  it.each([true, false, undefined])('accepts hostOwnsReversals = %p', (value) => {
+    expect(() => IyzicoProviderService.validateOptions({ ...options, hostOwnsReversals: value })).not.toThrow()
   })
 })
 

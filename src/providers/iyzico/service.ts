@@ -36,6 +36,7 @@ import {
   IyzicoPaymentData,
   IyzicoProviderOptions,
   IyzipayResult,
+  IYZICO_PROVIDER_REVERSAL_FENCED,
 } from './types'
 import { verifyCheckoutFormSignature, verifyThreedsCallbackSignature } from './signature'
 
@@ -81,6 +82,14 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
         )
       }
     }
+    // A safety fence must not fail open: an env string like 'true' would leave it off.
+    const hostOwnsReversals = options.hostOwnsReversals
+    if (hostOwnsReversals !== undefined && typeof hostOwnsReversals !== 'boolean') {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        'Iyzico provider option "hostOwnsReversals" must be a boolean when set.'
+      )
+    }
   }
 
   constructor(container: InjectedDependencies, options: IyzicoProviderOptions) {
@@ -96,21 +105,32 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
       secretKey: options.secretKey,
       baseUrl: options.baseUrl,
       callbackUrl: options.callbackUrl,
+      hostOwnsReversals: options.hostOwnsReversals,
     })
     this.logger_ = container.logger
     this.options_ = options
     this.client_ = new IyzicoClient(options, this.logger_)
   }
 
-  /** Throws before any gateway call when the host owns reversals (`hostOwnsReversals`). */
-  private assertProviderOwnsReversals(method: 'cancelPayment' | 'refundPayment'): void {
-    if (this.options_.hostOwnsReversals === true) {
-      throw new MedusaError(
-        MedusaError.Types.NOT_ALLOWED,
-        `Iyzico provider ${method} is fenced: the host app owns gateway reversals.`,
-        'IYZICO_PROVIDER_REVERSAL_FENCED'
-      )
+  /**
+   * Throws before any gateway call when the host owns reversals (`hostOwnsReversals`). Logs the
+   * gateway identifiers first: core callers that swallow the error log only the Medusa payment id.
+   */
+  private assertProviderOwnsReversals(
+    method: 'cancelPayment' | 'refundPayment',
+    pdata: IyzicoPaymentData
+  ): void {
+    if (this.options_.hostOwnsReversals !== true) {
+      return
     }
+    this.logger_.warn(
+      `Iyzico provider ${method} refused (hostOwnsReversals); the host recovery owner must act. paymentId=${pdata.paymentId ?? 'unknown'} conversationId=${pdata.conversationId ?? 'unknown'}`
+    )
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      `Iyzico provider ${method} is fenced: the host app owns gateway reversals.`,
+      IYZICO_PROVIDER_REVERSAL_FENCED
+    )
   }
 
   async initiatePayment(input: InitiatePaymentInput): Promise<InitiatePaymentOutput> {
@@ -215,7 +235,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
       // Nothing was authorized at the gateway yet — nothing to void.
       return { data: input.data }
     }
-    this.assertProviderOwnsReversals('cancelPayment')
+    this.assertProviderOwnsReversals('cancelPayment', pdata)
     // ⚠ spike-19-1 Q5: sandbox settlement is mocked; cancel-void fidelity is verified
     // against PRODUCTION keys in Story 20.1 before this is trusted in a money path.
     const result = await this.client_.cancel({
@@ -234,8 +254,8 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
   }
 
   async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentOutput> {
-    this.assertProviderOwnsReversals('refundPayment')
     const pdata = parsePaymentData(input.data)
+    this.assertProviderOwnsReversals('refundPayment', pdata)
     if (!pdata.paymentTransactionId) {
       this.logger_.error(
         `Iyzico refundPayment called without a paymentTransactionId — payment may not have been authorized. paymentId=${pdata.paymentId ?? 'unknown'} conversationId=${pdata.conversationId ?? 'unknown'}`

@@ -18,14 +18,29 @@ export interface IyzicoProviderOptions {
   callbackUrl: string
   /**
    * When `true`, the host app owns every gateway reversal: `cancelPayment` and
-   * `refundPayment` refuse (`IYZICO_PROVIDER_REVERSAL_FENCED`) instead of calling Iyzico.
-   * Use it when the host sends cancels/refunds through its own latched recovery owner, so
-   * no Medusa core caller (cancel-order, complete-cart compensation, authorize rollback)
-   * can send an untracked second reversal. A `cancelPayment` with no gateway `paymentId`
-   * still returns unchanged, since it sends nothing. Defaults to `false`.
+   * `refundPayment` throw {@link IYZICO_PROVIDER_REVERSAL_FENCED} (`NOT_ALLOWED`) instead of
+   * calling Iyzico. Use it when the host sends cancels/refunds through its own recovery owner,
+   * so no Medusa core caller (cancel-order, complete-cart compensation, authorize rollback,
+   * refund workflows) can send an untracked second reversal. Must be a boolean; any other
+   * value is rejected at boot. Defaults to `false`.
+   *
+   * The fence stops GATEWAY effects only. Opting in means:
+   * - Core callers that swallow provider errors still finish their LOCAL transitions (e.g.
+   *   `cancelOrderWorkflow` cancels the order and its refund branch records OrderTransactions
+   *   for refunds that never happened). The host must route or fence those owners itself.
+   * - `paymentModule.authorizePaymentSession`'s rollback calls `cancelPayment` before
+   *   rethrowing, so its original error is replaced by the fence error and the preauth stays
+   *   held: the host's recovery owner must release it.
+   * - `paymentModule.cancelPayment` can no longer set `canceled_at` for an Iyzico payment; the
+   *   host records a confirmed void with its own write (e.g. `paymentModule.updatePayment`).
+   * - A `cancelPayment` with no gateway `paymentId` still returns unchanged (it sends nothing),
+   *   and `capturePayment` is not affected.
    */
   hostOwnsReversals?: boolean
 }
+
+/** Error code thrown by the fenced `cancelPayment` / `refundPayment` (see `hostOwnsReversals`). */
+export const IYZICO_PROVIDER_REVERSAL_FENCED = 'IYZICO_PROVIDER_REVERSAL_FENCED'
 
 /**
  * Opaque, PSP-shaped request fragments assembled APP-SIDE (buyer, basket items
