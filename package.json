@@ -1,6 +1,6 @@
 {
   "name": "medusa-payment-iyzico",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Iyzico payment provider plugin for MedusaJS v2 — preauth/capture lifecycle (AbstractPaymentProvider) over the iyzipay SDK. The first Iyzico provider for Medusa v2.",
   "author": "Enes Ozdemir",
   "license": "MIT",
