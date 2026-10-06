@@ -309,6 +309,8 @@ describe('hostOwnsReversals fence', () => {
   function expectNoClientCall(): void {
     // Guard against a vacuous loop: the fixture must mock every public IyzicoClient method
     // (a trailing underscore marks a private helper, e.g. run_, which the service cannot call).
+    // Assumes client methods are PROTOTYPE methods: an arrow-function class field or an inherited
+    // method would not appear here, so keep IyzicoClient's methods declared on the class body.
     const clientMethods = Object.getOwnPropertyNames(IyzicoClient.prototype)
       .filter(name => name !== 'constructor' && !name.endsWith('_'))
     expect(Object.keys(client).sort()).toEqual(clientMethods.sort())
@@ -355,6 +357,7 @@ describe('hostOwnsReversals fence', () => {
     const result = await service.cancelPayment({ data: {} })
     expectNoClientCall()
     expect(result.data).toEqual({})
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 
   it('leaves capture untouched (the host saga still captures through the provider)', async () => {
