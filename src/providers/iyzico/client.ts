@@ -5,6 +5,7 @@ import { IyzicoProviderOptions, IyzipayResult } from './types'
 
 /** Parameters for a hosted-form preauth (authorize-only) initialization. */
 export interface InitializePreAuthParams {
+  enabledInstallments?: number[]
   conversationId: string
   price: string
   paidPrice: string
@@ -132,6 +133,7 @@ export class IyzicoClient {
       shippingAddress: params.shippingAddress,
       billingAddress: params.billingAddress,
       basketItems: params.basketItems,
+      ...(params.enabledInstallments === undefined ? {} : { enabledInstallments: params.enabledInstallments }),
     }
     return this.run_('checkoutFormInitializePreAuth', (cb) =>
       this.client_.checkoutFormInitializePreAuth.create(request, cb)

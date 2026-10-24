@@ -49,6 +49,8 @@ export const IYZICO_PROVIDER_REVERSAL_FENCED = 'IYZICO_PROVIDER_REVERSAL_FENCED'
  * untouched — it computes NO commission / split / sub-merchant logic (decision D10).
  */
 export interface IyzicoInitiateRequestData {
+  /** Optional host installment allowlist, forwarded unchanged to CheckoutForm. */
+  enabledInstallments?: number[]
   /** Iyzico `buyer` object (assembled app-side). */
   buyer?: Record<string, unknown>
   /** Iyzico `basketItems` (each may carry `subMerchantKey` + `subMerchantPrice`). */

@@ -72,6 +72,24 @@ function lastInstance(): MockIyzipayInstance {
 describe('Story 20.2 AC2 — full-capture-by-construction (no partial postauth)', () => {
   beforeEach(() => jest.clearAllMocks())
 
+  it('forwards the host single-installment restriction to the SDK request', async () => {
+    await new IyzicoClient(options).initializePreAuth({
+      conversationId: 'conv_installments', price: '300', paidPrice: '300', currency: 'TRY',
+      callbackUrl: options.callbackUrl, enabledInstallments: [1],
+    })
+    expect(lastInstance().checkoutFormInitializePreAuth.create.mock.calls[0][0])
+      .toMatchObject({ enabledInstallments: [1] })
+  })
+
+  it('keeps the existing SDK default when the host supplies no installment restriction', async () => {
+    await new IyzicoClient(options).initializePreAuth({
+      conversationId: 'conv_default', price: '300', paidPrice: '300', currency: 'TRY',
+      callbackUrl: options.callbackUrl,
+    })
+    expect(lastInstance().checkoutFormInitializePreAuth.create.mock.calls[0][0])
+      .not.toHaveProperty('enabledInstallments')
+  })
+
   it('postAuthFull sends NO paidPrice to Iyzico (full capture)', async () => {
     const client = new IyzicoClient(options)
     await client.postAuthFull({ paymentId: 'pay_1', conversationId: 'conv_1' })

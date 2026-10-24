@@ -135,6 +135,7 @@ class IyzicoProviderService extends AbstractPaymentProvider<IyzicoProviderOption
     const currency = input.currency_code.toUpperCase()
 
     const result = await this.client_.initializePreAuth({
+      enabledInstallments: request.enabledInstallments,
       conversationId: pdata.conversationId ?? '',
       price,
       paidPrice: price,
@@ -443,6 +444,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * (mirrors the `parsePaymentData` pattern — no bare `as` cast).
  */
 function toInitiateRequestData(obj: Record<string, unknown>): IyzicoInitiateRequestData {
+  const enabledInstallments = obj['enabledInstallments']
+  if (enabledInstallments !== undefined && (!Array.isArray(enabledInstallments)
+    || enabledInstallments.length === 0
+    || !enabledInstallments.every((value): value is number => Number.isSafeInteger(value) && value > 0))) {
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, 'enabledInstallments must be a non-empty list of positive integers.', 'IYZICO_INSTALLMENTS_INVALID')
+  }
   const buyer = obj['buyer']
   const basketItems = obj['basketItems']
   const shippingAddress = obj['shippingAddress']
@@ -457,6 +464,7 @@ function toInitiateRequestData(obj: Record<string, unknown>): IyzicoInitiateRequ
     paymentGroup: readString(obj, 'paymentGroup'),
     locale: readString(obj, 'locale'),
     basketId: readString(obj, 'basketId'),
+    enabledInstallments,
   }
 }
 
