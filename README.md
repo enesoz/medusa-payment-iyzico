@@ -75,6 +75,12 @@ modules: [
 
 **Never commit keys.** This repo enforces a pre-push secret scan (`.githooks/pre-push`, auto-configured via the `prepare` script) and CI secret scanning. Sandbox keys belong in CI secrets; production keys belong in your deployment environment.
 
+## Host installment restrictions
+
+Pass `data.request.enabledInstallments: [1]` when creating a payment session to offer a single payment only.
+The provider validates and forwards this optional positive-integer list to the CheckoutForm PRE_AUTH request.
+Omitting it preserves Iyzico's default. The host must also validate the retrieved installment count before capture.
+
 ## Host-owned reversals (`hostOwnsReversals: true`)
 
 The fence stops **gateway** effects only; capture is unaffected. Opting in means your app must:
