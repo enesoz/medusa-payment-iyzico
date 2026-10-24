@@ -70,6 +70,23 @@ describe('IyzicoProviderService.validateOptions', () => {
 })
 
 describe('initiatePayment', () => {
+  it('retains the host installment allowlist through stored payment data', async () => {
+    client.initializePreAuth.mockResolvedValue({ status: 'success', token: 'tok_installments' })
+    const result = await makeService().initiatePayment({
+      amount: 300, currency_code: 'try',
+      data: { request: { enabledInstallments: [1] } },
+    })
+    expect(client.initializePreAuth).toHaveBeenCalledWith(expect.objectContaining({ enabledInstallments: [1] }))
+    expect(result.data).toMatchObject({ request: { enabledInstallments: [1] } })
+  })
+
+  it.each([[], [0], [-1], [1.5], ['1'], '1', null])('refuses malformed installment allowlist %j before the gateway', async (enabledInstallments) => {
+    await expect(makeService().initiatePayment({
+      amount: 300, currency_code: 'try', data: { request: { enabledInstallments } },
+    })).rejects.toMatchObject({ code: 'IYZICO_INSTALLMENTS_INVALID' })
+    expect(client.initializePreAuth).not.toHaveBeenCalled()
+  })
+
   it('opens a preauth session and returns the token as id', async () => {
     client.initializePreAuth.mockResolvedValue({ status: 'success', token: 'tok_1' })
     const service = makeService()
